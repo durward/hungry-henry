@@ -1,0 +1,606 @@
+(require 2htdp/universe)
+(require 2htdp/image)
+
+;----------------------------- Hungry Henry -----------------------------------
+
+(define HEIGHT 600)
+(define WIDTH 600)
+(define SCENE (empty-scene WIDTH HEIGHT))
+
+
+(define HENRY .)
+(define HENRY-HEIGHT (image-height HENRY))
+(define HENRY-WIDTH (image-width HENRY))
+
+(define RW (square HENRY-HEIGHT 'solid 'blue))
+(define RW-HEIGHT (image-height RW))
+(define RW-WIDTH (image-width RW))
+
+
+(define CUPCAKE .)
+(define CUPCAKE-HEIGHT (image-height CUPCAKE))
+(define CUPCAKE-WIDTH (image-width CUPCAKE))
+
+(define WAYPOINT (triangle 20 'solid 'green))
+(define W-HEIGHT (image-height WAYPOINT))
+(define W-WIDTH (image-width WAYPOINT))
+
+;; Number of pixels Henry will move each time the function runs
+(define SPEED 5)
+
+(define NUMBER-OF-CUPCAKES 3)
+
+;; lposn is a (list Number Number)
+
+;; CupCake is a lposn
+;; where the two numbers represent the x and y
+;; coordinates of the CupCake
+
+;; Waypoint is a lposn 
+;; where the two numbers represent the x and y
+;; coordinates of the Waypoint
+
+(define wp1 (list 50 50))
+
+(define-struct player (name score pos low iw))
+;; A Player is a (make-player String Number lposn [List-of Waypoint] IWorld)
+;; where the string corresponds to the Players name,
+;; the number to the score, the lposn to its position
+;; on the world, and the low to the LoW that the player
+;; moves towards
+;; interp: The player always moves towards the first waypoint in the list
+
+(define p1 (make-player "Dan" 
+                       3 
+                       (list 0 0) 
+                       (list wp1)
+                       iworld1))
+
+(define p2 (make-player "TA" 
+                        0 
+                        (list 100 100) 
+                        (list (list 100 200))
+                        iworld2))
+(define p3 (make-player "TA" 0 (list 0 100) empty iworld1))
+(define p4 (make-player "TA" 0 (list 100 0) empty iworld1))
+(define p5 (make-player "TA" 0 (list 0 50) empty iworld1))
+(define p6 (make-player "TA" 0 (list 50 0) empty iworld1))
+(define p7 (make-player "TA" 0 (list 50 100) empty iworld1))
+(define p8 (make-player "TA" 0 (list 20 70) empty iworld1))
+
+(define-struct univ (loc lop))
+;; Universe is a: 
+;;    (make-univ [List-of Cupcake] [List-of Player])
+
+(define u1 (make-univ '() (list p1 p2 p3 p4 p5 p6 p7 p8)))
+
+;; Client2Server is a lposn
+
+;; A Server2Client is one of:
+;; -- 'waiting
+;; -- (list 'go  lposn (list-of Cupcake) (list-of Waypoint) (list-of lposn))
+;; -- (list true Number)
+;; -- (list false Number)
+
+;; WORLD
+;; -----------------------------------------------------------------------------
+;; A State is one of:
+;; -- waiting
+;; -- go
+;; -- (list true Number)
+;; -- (list false Number)
+
+(define-struct confroom (loc p-pos low lo-pos state))
+;; A ConferenceRoom is a 
+;; (make-confroom [List-of Cupcake] Posn [List-of Waypoint] [List-of Posn] State)
+;; where the list of Cupcakes contains the positions of the cupcakes,
+;; the Posn represents the Client's position,
+;; the list of Waypoints represents the Client's Waypoints,
+;; the list of Posns represent the positions of the other Players,
+;; and the state represents the state of the player in relation to the game.
+
+(define conf1 (make-confroom (list (list 10 10))
+                             (list 20 2)
+                             (list (list 20 20)
+                                   (list 40 40))
+                             (list (list 30 20)
+                                   (list 30 40))
+                             'go))
+(define conf2 (make-confroom '() '() '() '() 'waiting))
+(define conf3 (make-confroom '() '() '() '() (list true 30)))
+(define conf4 (make-confroom '() '() '() '() (list false 10)))
+
+(define (make-world n ip-address)
+     (big-bang (make-confroom empty empty empty empty 'waiting)
+               (to-draw draw-world)
+               (on-tick tock)
+               (on-mouse event)
+               (on-receive respond)
+               (name n)
+               (register ip-address)
+               (stop-when done? last-frame)))
+
+;------------------------ to-draw
+
+;; draw-world : ConferenceRoom -> Image
+;; Given a ConferenceRoom, conference, displays an image of the game world
+
+(check-expect (draw-world conf1)
+              (place-image HENRY
+                           (first (confroom-p-pos conf1))
+                           (second (confroom-p-pos conf1))
+                           (draw (confroom-lo-pos conf1)
+                                 RW
+                                 (draw (confroom-loc conf1)
+                                       CUPCAKE
+                                       SCENE))))
+(check-expect (draw-world conf2)
+              (empty-scene WIDTH HEIGHT))
+  
+(define (draw-world conference)
+  (if (and (symbol? (confroom-state conference)) 
+           (symbol=? 'waiting (confroom-state conference)))
+      (empty-scene WIDTH HEIGHT)
+      (place-image HENRY 
+                   (first (confroom-p-pos conference)) 
+                   (second (confroom-p-pos conference))
+                   (draw (confroom-lo-pos conference)
+                         RW
+                         (draw (confroom-low conference) 
+                               WAYPOINT
+                               (draw (confroom-loc conference)
+                                     CUPCAKE
+                                     SCENE))))))
+
+  
+;; draw : [Listof Posn] Image Image -> Image
+;; Draws an image element at every posn on a list onto 
+;; a base image
+
+
+(define (draw lop element base)
+  (foldr (lambda (p b) (place-image element (first p) (second p) b))
+         base
+         lop))
+
+;------------------------- on-tick
+;; ConferenceRoom -> ConferenceRoom
+;; Returns the inputted worldstate.
+;; Actual on-tick function is handled
+;; by the server(universe).
+(define (tock ws)
+  ws)
+
+;------------------- on-mouse
+
+;; event :
+;; ConferenceRoom Number Number MouseEvent -> Package
+;; Given a ConferenceRoom conference, Number x,
+;; Number y, and MouseEvent mouse-event, adds a waypoint 
+;; with coordinates at the location of the mouseclick
+
+(check-expect (event conf1 20 30 "button-down")
+              (make-package conf1 (list 20 30)))
+(check-expect (event conf1 20 30 "button-up")
+              conf1)
+
+(define (event conference x y mouse-event)
+  (cond
+    [(string=? "button-down" mouse-event) 
+     (make-package conference (list x y))]
+    [else conference]))
+
+
+;------------------------- on-receive
+
+;; respond: ConferenceRoom Server2Client -> ConferenceRoom
+;; receive a message and adjust world state
+
+(check-expect (respond conf2 (list 'go (list 10 200) (list (list 30 30)) '() '()))
+              (make-confroom '() (list 10 200) (list (list 30 30)) '() 'go))
+(check-expect (respond conf2 (list (list true 43) 
+                                   (list true 21) 
+                                   (list 10 200) 
+                                   (list (list 30 30)) 
+                                   '() 
+                                   '()))
+              (make-confroom '()
+                             '()
+                             '()
+                             '()
+                             (list (list true 43) 
+                                   (list true 21) 
+                                   (list 10 200) 
+                                   (list (list 30 30)) 
+                                   '()
+                                   '())))
+
+(define (respond conf s2c)
+  (cond [(symbol? (first s2c))
+         (make-confroom (fourth s2c) (second s2c) (third s2c) (fifth s2c) (first s2c))]
+        [else 
+         (make-confroom (confroom-loc conf) 
+                     (confroom-p-pos conf)
+                     (confroom-low conf)
+                     (confroom-lo-pos conf)
+                     s2c)]))
+
+;---------------------------- stop-when
+
+;; done?: ConferenceRoom -> Boolean
+;; stops the world when a player has won
+
+(check-expect (done? (make-confroom '() '() '() '() 'go)) false)
+(check-expect (done? (make-confroom '() '() '() '() (list true 4))) true)
+
+(define (done? conf)
+  (cons? (confroom-state conf)))
+
+;; last-frame: ConferenceRoom -> Image
+;; Draws the final screen displaying whether the 
+;; client has won or lost
+
+(check-expect (last-frame conf3) 
+              (place-image (text (string-append "You WIN! Your score: " "30")
+                                 50
+                                 'green)
+                           (/ WIDTH 2)
+                           (/ HEIGHT 2)
+                           SCENE))
+(check-expect (last-frame conf4) 
+              (place-image (text (string-append "You LOSE! Your score: " "10")
+                                 50
+                                 'red)
+                           (/ WIDTH 2)
+                           (/ HEIGHT 2)
+                           SCENE))
+                           
+(define (last-frame conf)
+  (if (false? (first (confroom-state conf)))
+      (place-image (text (string-append "You LOSE! Your score: " 
+                                          (number->string 
+                                           (second (confroom-state conf)))) 50 'red)
+                     (/ WIDTH 2)
+                     (/ HEIGHT 2)
+                     SCENE)
+        (place-image (text (string-append "You WIN! Your score: " 
+                                          (number->string 
+                                           (second (confroom-state conf)))) 50 'green)
+                     (/ WIDTH 2)
+                     (/ HEIGHT 2)
+                     SCENE)))
+
+
+;; -----------------------------------------------------------------------------
+;; UNIVERSE 
+
+;; UniverseBundle is
+;;     [Bundle Universe [Mail Server2World] [List-of ConferenceRoom]]
+;; interpretation: a bundle contains the current state of the universe, 
+;; the mails that should be sent to the worlds, and a list of worlds to be
+;; thrown out (say for bad behavior)
+
+;; make-universe: Nat -> Universe 
+;; create a universe hub with an inputted number of players
+
+(define (make-universe number-of-players)
+  (local (;; Universe IWorld Number -> UniverseBundle 
+          ;; add the new world to the end of the universe's list of participating worlds
+          ;; and send token to the first world on the resulting list
+          ;; IF there are less than the desired number of players than the inputted number
+          ;; otherwise, ignore the player.
+          (define (add-player uni iw)
+            (local ((define new-uni 
+                      (make-univ (univ-loc uni)
+                                 (append (univ-lop uni) 
+                                         (list (make-player 
+                                                (iworld-name iw)
+                                                0
+                                                (list (random WIDTH) (random HEIGHT))
+                                                empty
+                                                iw)))))
+                    (define new-uni-length (length (univ-lop new-uni))))
+              (cond [(< new-uni-length number-of-players) (make-bundle new-uni '() '())]
+                    [(= new-uni-length number-of-players) (go new-uni)]
+                    [else uni]))))
+          (universe (make-univ (create-cupcakes NUMBER-OF-CUPCAKES) '())
+                    [on-tick update]
+                    [on-new add-player]
+                    [on-msg new-waypoint])))
+
+;; go : Universe -> UniverseBundle
+;; Sends a message to all the clients to start playing
+
+(check-expect (bundle? (go u1)) 
+              (bundle? 
+               (make-bundle u1 
+                            (map (λ (p) 
+                                   (make-mail 
+                                    (player-iw p)     
+                                    (list 'go
+                                          (posn? (list (random WIDTH) (random HEIGHT)))
+                                          (player-low p)
+                                          (univ-loc u1)
+                                          (map (λ (p) (player-pos p)) (univ-lop u1)))))
+                                 (univ-lop u1))
+                            '())))
+
+(define (go uni)
+  (make-bundle uni (map (λ (p) (make-mail (player-iw p) 
+                                          (list 'go
+                                                (list (random WIDTH) (random HEIGHT))
+                                                (player-low p)
+                                                (univ-loc uni)
+                                                (map (λ (p) (player-pos p)) 
+                                                     (univ-lop uni)))))
+                        (univ-lop uni))
+               '()))
+
+;; new-waypoint : Universe IWorld World2Server -> UniverseBundle
+;; adds a Waypoint, given in World2Server, to the conferenceroom's [List-of Waypoint]
+;; ASSUME: list of worlds is not empty 
+;; (holds because a world is sending a message and 
+;; the Universe must have added it to its state)
+;(define-struct player (name score pos low iw))
+
+(define player1 (make-player "Callie" 2 '() '() iworld1))
+(define player2 (make-player "Jake" 3 '() '() iworld2))
+
+(define univ1 (make-univ '() (list player1 player2)))
+
+(check-expect (new-waypoint univ1 iworld2 (list 20 30))
+              (make-bundle (make-univ '() (list player1
+                                                (make-player "Jake"
+                                                             3
+                                                             '()
+                                                             (list (list 20 30))
+                                                             iworld2)))
+                           '()
+                           '()))
+ 
+(define (new-waypoint uni iw msg)
+  (local ((define new-lop (map (λ (p) (if (iworld=? iw (player-iw p))
+                                          (make-player (player-name p)
+                                                       (player-score p)
+                                                       (player-pos p)
+                                                       (add-waypoint msg (player-low p))
+                                                       (player-iw p))
+                                          p))
+                               (univ-lop uni)))
+          (define new-uni (make-univ (univ-loc uni)
+                                     new-lop)))
+    (make-bundle new-uni '() '())))
+
+
+;; HUNGRY HENRY CODE
+    
+;; game-over? : [List-of Cupcake] -> Boolean
+;; determines if the game is over if there are
+;; no more cupcakes left 
+
+(check-expect (game-over? '()) true)
+(check-expect (game-over? '((list 1 2))) false)
+
+(define (game-over? loc)
+  (empty? loc))
+
+;; update : Universe -> UniverseBundle
+;; Given a ConferenceRoom, 
+;; moves the players, removes waypoints, removes cupcakes,
+;; and counts ticks
+
+(check-expect (update univ1)
+              (make-bundle (make-univ '() '())
+                           (list (make-mail iworld2 (list true 1.5))
+                                 (make-mail iworld1 (list false 1)))
+                           (list iworld1 iworld2)))
+
+
+(define (update uni)
+  (local (;; add-score : Player -> Player
+          ;; Adds 1 to a player's score if they eat a cupcake
+          (define (add-score p)
+            (if (ormap (λ (cc) (intersect? (player-pos p) cc)) (univ-loc uni))
+                (make-player (player-name p) 
+                             (+ 1 (player-score p))
+                             (player-pos p)
+                             (player-low p)
+                             (player-iw p))
+                p))
+          (define new-universe
+            (make-univ (remove-cupcakes (univ-lop uni)
+                                        (univ-loc uni))
+                       (map add-score (map remove-waypoints 
+                                           (map move-player 
+                                                (univ-lop uni))))))
+          (define uni-win-score 
+            (foldr max 0 (map player-score (univ-lop uni))))
+          (define uni-winners 
+            (filter (λ (p) (= (player-score p) uni-win-score)) (univ-lop uni)))
+          (define uni-losers 
+            (filter (λ (p) (not (= (player-score p) uni-win-score))) (univ-lop uni))))
+          (if (game-over? (univ-loc uni))
+              (make-bundle (make-univ '() '())
+                           (append (map (λ (p) (make-mail (player-iw p)  
+                                                          (list true 
+                                                                (/ (player-score p) 2))))
+                                        uni-winners)
+                                   (map (λ (p) (make-mail (player-iw p)  
+                                                          (list false 
+                                                                (/ (player-score p) 2))))
+                                          uni-losers))
+                            (map (λ (p) (player-iw p)) (univ-lop uni)))
+              (make-bundle new-universe
+                           (map (λ (p) (make-mail (player-iw p)  
+                                                  (list 'go
+                                                        (player-pos p)
+                                                        (player-low p)
+                                                        (univ-loc uni)
+                                                        (map player-pos (univ-lop uni)))))
+                                (univ-lop uni))
+                           '()))))
+    ;; end-game-message : [List-of Player] -> ...(WHAT IS THIS) **************************
+;; sends a message to the players stating whether they have
+;; won or lost
+
+#;(define (end-game-message lop)
+  (local ((define max-score (foldr max lop)))
+    (append (map (λ (p) (make-player (player-iw p)
+                                     'you-win
+                                     ((filter 
+                                       (λ (p) (= max-score (player-score p))) 
+                                       lop))))))))
+
+;; move-player : Player -> Player
+;; Given a Player p,
+;; returns a Player with updated coordinates
+
+(check-within (player-pos (move-player p1)) (list 3.5 3.5) .1)
+(check-within (player-pos (move-player p2)) (list 100 105) .1)
+(check-expect (move-player p3) p3)
+
+(define (move-player p)
+  (if (empty? (player-low p))
+      p
+      (local ((define wp (first (player-low p)))
+              (define d (distance wp (player-pos p)))
+              (define d-SPEED (- d SPEED))
+              (define wp.x (first wp))
+              (define wp.y (second wp)))
+        (make-player (player-name p)
+                     (player-score p)
+                     (list (+ wp.x (* (/ (- (first (player-pos p)) wp.x) d) d-SPEED))
+                           (+ wp.y (* (/ (- (second (player-pos p)) wp.y) d) d-SPEED)))
+                     (player-low p)
+                     (player-iw p)))))
+
+;; distance: lposn lposn -> Number
+;; computes the distance between two lposns
+
+(check-within (distance (list 2 2) (list 4 4)) .2 3)
+
+(define (distance p1 p2)
+  (sqrt (+ (sqr (- (first p1) (first p2)))
+           (sqr (- (second p1) (second p2))))))
+
+;; intersect? : lposn [X] -> Boolean
+;; Determines whether Player's lposn, pos, is intersecting with
+;; a cupcake or waypoint
+
+(check-expect (intersect? (list 50 50)
+                          (list 52 52))
+              true)
+(check-expect (intersect? (list 0 0)
+                          (list 52 52))
+              false)
+
+(define (intersect? pos x)
+  (and (> (/ HENRY-WIDTH 2)
+          (abs (- (first pos) (first x))))
+       (> (/ HENRY-HEIGHT 2)
+          (abs (- (second pos) (second x))))))
+
+;; remove-waypoint : lposn [Listof lposn] -> [Listof lposn]
+;; Removes the first waypoint if it is intersecting with Player's lposn, pos, from
+;; their list
+
+(check-expect (remove-waypoint (list 1 1) (list (list 1 1) 
+                                             (list 400 400) 
+                                             (list 3 3) 
+                                             (list 50 50))) 
+              (list (list 400 400) (list 3 3) 
+                    (list 50 50)))
+
+(define (remove-waypoint lposn lopos)
+  (cond [(empty? lopos) empty]
+        [else (if (intersect? lposn (first lopos))
+                  (rest lopos)
+                  lopos)]))
+
+;; remove-cupcakes: Player [List-of Player] [List-of Cupcake] -> [List-of Cupcake]
+;; Removes all cupcakes intersecting with any of the players
+
+(check-expect (remove-cupcakes 
+               (list (make-player "Computer 1" 0 (list 300 300) empty iworld2)
+                     (make-player "Computer 2" 0 (list 400 400) empty iworld2)
+                     (make-player "Computer 3" 0 (list 3 3) empty iworld2)
+                     (make-player "Computer 4" 0 (list 50 50) empty iworld2)
+                     (make-player "Computer 4" 0 (list 5000 5000) empty iworld2))
+               (list (list 300 300) 
+                     (list 400 400) 
+                     (list 5000 5000) 
+                     (list 50 50)
+                     (list 20 30)))
+              (list (list 20 30)))
+
+(define (remove-cupcakes lop loc)
+  (foldr (λ (pos loc) (filter (lambda (c) (not (intersect? pos c))) loc))
+         loc 
+         (map player-pos lop)))
+
+
+;; remove-waypoints: Player -> Player
+;; Removes all waypoints intersecting with the player's position
+
+(check-expect (remove-waypoints (make-player "Bill"
+                                             0 
+                                             (list 300 300)
+                                             (list (list 300 300) 
+                                                   (list 400 400) 
+                                                   (list 3 3) 
+                                                   (list 50 50))
+                                             iworld1))
+              (make-player "Bill"
+                           0
+                           (list 300 300)
+                           (list (list 400 400) 
+                                 (list 3 3) 
+                                 (list 50 50))
+                           iworld1))
+
+(define (remove-waypoints p)
+  (make-player (player-name p)
+               (player-score p)
+               (player-pos p)
+               (remove-waypoint (player-pos p) (player-low p))
+               (player-iw p)))
+
+;; add-waypoint : Waypoint [List-of Waypoint] -> [List-of Waypoint]
+;; Given a Waypoint waypoint, and a LoW low,
+;; returns a LoW with the waypoint added in
+
+(check-expect (add-waypoint (list 1 1) empty)
+              (cons (list 1 1) empty))
+
+(define (add-waypoint waypoint low)
+  (cond
+    [(empty? low) (cons waypoint empty)]
+    [else (cons (first low) (add-waypoint waypoint (rest low)))]))
+
+;; create-lop: PositiveInteger Number Number -> [List-of lposn]
+;; creates a list of lposns of length n, which are all
+;; a given distance x and y distances away from the scene edge
+
+(define (create-lop n x y)
+  (build-list n (lambda (num) (list (+ x (random (- WIDTH (* 2 x))))
+                                         (+ y (random (- HEIGHT (* 2 y))))))))
+
+;; create-cupcakes : PositiveInteger -> [List-of Cupcake]
+;; Given a positive integer, returns a list of cupcakes
+
+(check-expect (length (create-cupcakes 10)) 10)
+
+(define (create-cupcakes n)
+  (create-lop n CUPCAKE-WIDTH CUPCAKE-HEIGHT))
+
+
+;; -----------------------------------------------------------------------------
+;; RUN SAMPLE PROGRAM RUN
+
+;; Nat -> [List-of IWorld] Boolean Boolean 
+;; run three worlds that hand over a token every so often [NOT TESTABLE]
+(define (launch n)
+  (launch-many-worlds (make-universe n)
+                      (make-world "kathleen" LOCALHOST)
+                      (make-world "becca" LOCALHOST)
+                      (make-world "claire" LOCALHOST)))
