@@ -1,0 +1,275 @@
+;; The first three lines of this file were inserted by DrRacket. They record metadata
+;; about the language level of this file in a form that our tools can easily process.
+#reader(lib "htdp-intermediate-lambda-reader.ss" "lang")((modname |Hungry Henry Universe|) (read-case-sensitive #t) (teachpacks ()) (htdp-settings #(#t constructor repeating-decimal #f #t none #f ())))
+;; UNIVERSE 
+
+;; UniverseState is [List-of ConferenceRoom]. 
+;; interpretation: the universe tracks the worlds that have joined it so far; 
+;; the first world in the list is the one that currently holds the token. 
+
+(define us1 (list iworld1))
+(define us1-2 (list iworld1 iworld2))
+(define us2-1 (list iworld2 iworld1))
+
+;; UniverseBundle is
+;;     [Bundle UniverseState [Mail Server2World] [List-of ConferenceRoom]]
+;; interpretation: a bundle contains the current state of the universe, 
+;; the mails that should be sent to the worlds, and a list of worlds to be
+;; thrown out (say for bad behavior)
+
+;; make-universe: Nat -> UniverseState 
+;; create a universe hub with an inputted number of players 
+(define (make-universe number-of-players)
+  (universe '()
+            [on-tick universe-tock]
+            [on-new add-world]
+            [on-msg new-waypoint]))
+
+;; universe-tock : UniverseState -> UniverseBundle
+;; Moves the players, removes waypoints, and removes cupcakes
+;; for every ConferenceRoom in the UniverseState, us.
+
+(define (universe-tock us)
+  (make-bundle (map tock us) '() '()))
+
+;; UniverseState ConferenceRoom -> UniverseBundle 
+;; add the new world to the end of the universe's list of participating worlds
+;; and send token to the first world on the resulting list
+
+#;(check-expect (add-world '() iworld1) 
+              (make-bundle us1 (list (make-mail iworld1 '())) '()))
+
+#;(check-expect (add-world us1 iworld2) 
+              (make-bundle us1-2 (list (make-mail iworld1 '())) '()))
+
+(define (add-world us iw)
+  (local ((define new-us (append us (list iw))))
+    (make-bundle new-us (list (make-mail (first new-us) 'waiting)) '())))
+
+;; new-waypoint : UniverseState ConferenceRoom World2Server -> UniverseBundle
+;; adds a Waypoint, given in World2Server, to the conferenceroom's [List-of Waypoint]
+;; ASSUME: list of worlds is not empty 
+;; (holds because a world is sending a message and 
+;; the Universe must have added it to its state)
+
+(define (new-waypoint us cr msg)
+  (local ((define new-conferenceroom (make-world (world-human cr) 
+                                                 (world-loc cr) 
+                                                 (add-waypoint msg (world-low cr))))
+          (define new-us (append (list new-conferenceroom) (rest us))))
+    (make-bundle new-us '() '())))
+
+
+
+
+
+;; HUNGRY HENRY CODE
+
+;; tock : ConferenceRoom -> ConferenceRoom
+;; Given a ConferenceRoom, 
+;; moves the players, removes waypoints, removes cupcakes,
+;; and counts ticks
+
+(define (tock conference)
+  (local (;; add-score : Player -> Player
+          ;; Adds 1 to a player's score if they eat a cupcake
+          (define (add-score p)
+            (if (ormap (λ (cc) (intersect? (player-pos p) cc)) (world-loc conference))
+                (make-player (player-name p) 
+                             (add1 (player-score p))
+                             (player-pos p)
+                             (player-low p))
+                p)))
+    (make-world (add-score (remove-waypoints (move-player (world-human conference))))
+                (remove-cupcakes (world-human conference)
+                                 (world-lop conference)
+                                 (world-loc conference))
+                (+ 1 (world-t conference))
+                (map add-score (map remove-waypoints 
+                                    (map move-player 
+                                         (world-lop conference)))))))
+
+;; move-player : Player -> Player
+;; Given a Player p,
+;; returns a Player with updated coordinates
+
+(check-expect (move-player p1)
+              (make-player "TA" 100 (make-posn 7 7) `(,wp1)))
+(check-expect (move-player p2) p2)
+
+(define (move-player p)
+  (cond
+    [(empty? (player-low p)) p]
+    [else
+     (make-player (player-name p) 
+                  (player-score p)
+                  (make-posn (inexact->exact (move-player-x 
+                                              p 
+                                              (first (player-low p)))) 
+                             (inexact->exact (move-player-y 
+                                              p 
+                                              (first (player-low p)))))
+                  (player-low p))]))
+
+;; move-player-x : Player Waypoint -> Number
+;; Given a Player, p, and a Waypoint, waypoint,
+;; returns the new x-coordinate
+
+(check-within (move-player-x p1 wp1) 7 0.0)
+(check-within (move-player-x p2 wp1) 93 0.0)
+(check-within (move-player-x p5 wp1) D 0.0)
+(check-within (move-player-x p6 wp1) 50 0.0)
+
+(define (move-player-x p waypoint)
+  (local (;; assigns p-pos to the position of a player
+          (define p-pos (player-pos p)))
+    (cond 
+      [(= (posn-x p-pos) (posn-x waypoint)) 
+       (posn-x p-pos)]
+      [(> (posn-x p-pos) (posn-x waypoint))  
+       (- (posn-x p-pos) (round (sqrt 
+                                 (/ (sqr D) 
+                                    (+ 1 (sqr (slope p waypoint)))))))]
+      [else 
+       (+ (posn-x p-pos) (round (sqrt 
+                                 (/ (sqr D) 
+                                    (+ 1 (sqr (slope p waypoint)))))))])))
+
+;; move-player-y : Player Waypoint -> Number
+;; Given a Player, p, and a Waypoint, waypoint,
+;; returns the new y-coordinate
+
+(check-within (move-player-y p1 wp1) 7 0.0)
+(check-within (move-player-y p2 wp1) 93 0.0)
+(check-within (move-player-y p5 wp1) 50 0.0)
+(check-within (move-player-y p6 wp1) D 0.0)
+(check-within (move-player-y p7 wp1) 90 0.0)
+
+(define (move-player-y p waypoint)
+  (local (;; assigns p-pos to the position of a player
+          (define p-pos (player-pos p)))
+    (cond 
+      [(= (posn-y p-pos) (posn-y waypoint)) 
+       (posn-y p-pos)]
+      [(and 
+        (= (posn-x p-pos) (posn-x waypoint)) 
+        (> (posn-y p-pos) (posn-y waypoint) 0))
+       (- (posn-y p-pos) D)]
+      [(and 
+        (= (posn-x p-pos) (posn-x waypoint)) 
+        (< (posn-y p-pos) (posn-y waypoint)))
+       (+ (posn-y p-pos) D)]
+      [(> (posn-x p-pos) (posn-x waypoint))  
+       (- (posn-y p-pos) 
+          (round (* (slope p waypoint) 
+                    (sqrt (/ (sqr D) 
+                             (+ 1 (sqr (slope p waypoint))))))))]
+      [else 
+       (+ (posn-y p-pos) 
+          (round (* (slope p waypoint) 
+                    (sqrt (/ (sqr D) 
+                             (+ 1 (sqr (slope p waypoint))))))))])))
+  
+;; slope : Player Waypoint -> Number
+;; Given a Player, p, and a Waypoint, waypoint,
+;; returns the slope between Player and Waypoint
+
+(check-expect (slope p1 wp1) 1)
+(check-expect (slope p3 wp1) -1)
+(check-expect (slope p8 wp1) (- 0 (/ 2 3)))
+
+(define (slope p waypoint)
+  (inexact->exact (/ (- (posn-y waypoint) (posn-y (player-pos p))) 
+                     (- (posn-x waypoint) (posn-x (player-pos p))))))
+
+;; intersect? : Posn [X] -> Boolean
+;; Determines whether Player's posn, pos, is intersecting with
+;; a cupcake or waypoint
+
+(check-expect (intersect? (make-posn 50 50)
+                          (make-posn 52 52))
+              true)
+(check-expect (intersect? (make-posn 0 0)
+                          (make-posn 52 52))
+              false)
+
+(define (intersect? pos x)
+  (and (> (/ HENRY-WIDTH 2)
+          (abs (- (posn-x pos) (posn-x x))))
+       (> (/ HENRY-HEIGHT 2)
+          (abs (- (posn-y pos) (posn-y x))))))
+
+;; removex : Posn [Listof X] -> [Listof X]
+;; Removes elements intersecting with Player's posn, pos, from
+;; their list
+
+(check-expect (removex (make-posn 1 1) (list (make-posn 300 300) 
+                                             (make-posn 400 400) 
+                                             (make-posn 3 3) 
+                                             (make-posn 50 50))) 
+              (list (make-posn 300 300) (make-posn 400 400) 
+                    (make-posn 50 50)))
+
+(define (removex posn lox)
+  (cond [(empty? lox) empty]
+        [(intersect? posn (first lox)) (rest lox)]
+        [else (cons (first lox) (removex posn (rest lox)))]))
+
+;; remove-waypoint : Posn [Listof Posn] -> [Listof Posn]
+;; Removes the first waypoint if it is intersecting with Player's posn, pos, from
+;; their list
+
+(check-expect (remove-waypoint (make-posn 1 1) (list (make-posn 1 1) 
+                                             (make-posn 400 400) 
+                                             (make-posn 3 3) 
+                                             (make-posn 50 50))) 
+              (list (make-posn 400 400) (make-posn 3 3) 
+                    (make-posn 50 50)))
+
+(define (remove-waypoint posn lopos)
+  (cond [(empty? lopos) empty]
+        [else (if (intersect? posn (first lopos))
+                  (rest lopos)
+                  lopos)]))
+
+;; remove-cupcakes: Player LoP LoC -> LoC
+;; Removes all cupcakes intersecting with the player, p,
+;; or the LoP, lop
+
+(check-expect (remove-cupcakes (make-player "Bill" 0 (make-posn 5000 5000) empty)
+                               (list (make-player "Computer 1" 0 (make-posn 300 300) empty)
+                                     (make-player "Computer 2" 0 (make-posn 400 400) empty)
+                                     (make-player "Computer 3" 0 (make-posn 3 3) empty)
+                                     (make-player "Computer 4" 0 (make-posn 50 50) empty))
+                               (list (make-posn 300 300) 
+                                     (make-posn 400 400) 
+                                     (make-posn 5000 5000) 
+                                     (make-posn 50 50)
+                                     (make-posn 20 30)))
+              (list (make-posn 20 30)))
+
+(define (remove-cupcakes p lop loc)
+  (removex (player-pos p) (foldr (λ (pos loc) (removex pos loc)) loc (map player-pos lop))))
+
+;; remove-waypoints: Player -> Player
+;; Removes all waypoints intersecting with the player's position
+
+(check-expect (remove-waypoints (make-player "Bill"
+                                             0 
+                                             (make-posn 300 300)
+                                             (list (make-posn 300 300) 
+                                                   (make-posn 400 400) 
+                                                   (make-posn 3 3) 
+                                                   (make-posn 50 50))))
+              (make-player "Bill"
+                           0
+                           (make-posn 300 300)
+                           (list (make-posn 400 400) 
+                                 (make-posn 3 3) 
+                                 (make-posn 50 50))))
+
+(define (remove-waypoints p)
+  (make-player (player-name p) 
+               (player-score p) 
+               (player-pos p) 
+               (remove-waypoint (player-pos p) (player-low p))))
